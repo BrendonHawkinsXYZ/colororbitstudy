@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Color Orbit Study</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #262627;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 1rem;
+      position: relative;
+    }
+    .hamburger {
+      width: 30px;
+      height: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      cursor: pointer;
+      z-index: 3;
+    }
+    .bar {
+      width: 100%;
+      height: 4px;
+      background-color: #f7fcfe;
+    }
+
+    /* Settings panel */
+    #settingsPanel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 280px;
+      height: 100vh;
+      background: rgba(247, 252, 254, 0.5);
+      backdrop-filter: blur(10px);
+      padding: 1rem;
+      box-sizing: border-box;
+      transition: transform 0.3s ease;
+      transform: translateX(100%);
+      overflow-y: auto;
+      z-index: 2;
+    }
+    #settingsPanel.show {
+      transform: translateX(0);
+    }
+    label {
+      display: block;
+      margin: 0.5rem 0 0.3rem;
+    }
+    select, input {
+      width: 100%;
+      margin-bottom: 1rem;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.5rem;
+      border: 2px solid #262627;
+      background: #f7fcfe;
+      cursor: pointer;
+    }
+    #instructionSection {
+      margin-top: auto;
+      padding-top: 1rem;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      position: relative;
+      overflow: auto;
+      padding: 1rem;
+    }
+
+    /* 
+       The canvas has a fixed internal resolution of 900x800.
+       We scale it in CSS so it’s responsive.
+       - width: 100% for small screens
+       - max-width: 900px so it never exceeds 900
+         or use max-width: 50% if you prefer a half-screen cap on big monitors
+       - height: auto keeps aspect ratio
+       - margin: 0 auto to center horizontally
+    */
+    #orbitCanvas {
+      width: 100%;
+      max-width: 900px; 
+      height: auto;
+      display: block;
+      margin: 0 auto;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="hamburger" onclick="toggleSettings()">
+    <div class="bar"></div>
+    <div class="bar"></div>
+    <div class="bar"></div>
+  </div>
+</header>
+
+<!-- Settings Panel -->
+<div id="settingsPanel">
+  <h2>SETTINGS</h2>
+
+  <label for="toolSelect">Tool:</label>
+  <select id="toolSelect">
+    <option value="paint">Paint Brush</option>
+    <option value="spray">Spray Paint</option>
+  </select>
+
+  <label for="colorPicker">Brush Color:</label>
+  <input type="color" id="colorPicker" value="#cc6600" />
+
+  <label for="brushSize">Brush Size:</label>
+  <input type="range" id="brushSize" min="1" max="50" value="8" />
+
+  <button class="download" onclick="downloadCanvas()">DOWNLOAD</button>
+
+  <div id="instructionSection">
+    <h3>INSTRUCTIONS</h3>
+    <p>This is Color Orbit Study where colors are study in proximity.</p>
+    <p>1. Choose a Color with the palette.</p>
+    <p>2. Choose a brush then paint. "Paint" draws lines at half opacity, "Spray" stamps random dots at half opacity.</p>
+    <p>3. The Squares are your reference palette and should be filled as you complete the circles. Tap squares at bottom to fill them with your color.</p>
+    <p>4. Download the final image anytime.</p>
+  </div>
+</div>
+
+<main>
+  <!-- 
+    The canvas has a fixed internal resolution (900x800).
+    We scale it in CSS so it won't exceed 900px in width
+    and is 100% on smaller screens.
+  -->
+  <canvas id="orbitCanvas" width="900" height="800"></canvas>
+</main>
+
+<script>
+// Toggle settings panel
+function toggleSettings() {
+  document.getElementById('settingsPanel').classList.toggle('show');
+}
+
+// Setup canvas & context
+const canvas = document.getElementById('orbitCanvas');
+const ctx    = canvas.getContext('2d');
+
+const toolSelect   = document.getElementById('toolSelect');
+const colorPicker  = document.getElementById('colorPicker');
+const brushSize    = document.getElementById('brushSize');
+
+// track drawing
+let drawing = false;
+let lastX   = 0;
+let lastY   = 0;
+let squares = [];
+
+// 1) Initialize the Canvas content
+function initCanvas() {
+  // White background
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Title
+  ctx.fillStyle   = 'black';
+  ctx.font        = '32px sans-serif'; 
+  ctx.textAlign   = 'center';
+  ctx.fillText('COLOR ORBIT STUDY', canvas.width/2, 60);
+
+  // Random circles
+  const circleCount = 3 + Math.floor(Math.random()*3); 
+  let centerX = canvas.width/2;
+  let centerY = canvas.height/2 + 10;
+  let maxR    = 0.35 * Math.min(canvas.width, canvas.height);
+  maxR       *= (0.75 + 0.25*Math.random());
+  let currentRadius = maxR;
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth   = 2;
+  for(let i=0; i<circleCount; i++){
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, currentRadius, 0, 2*Math.PI);
+    ctx.stroke();
+
+    let gap = 15 + Math.random()*60;
+    let nextR = currentRadius - gap;
+    if(nextR < 20) nextR = 20;
+    currentRadius = nextR;
+  }
+
+  // Squares at bottom
+  squares = [];
+  const sqSize   = 40;
+  const spacing  = 10;
+  const rowWidth = circleCount*(sqSize+spacing) - spacing;
+  let startX     = (canvas.width - rowWidth)/2;
+  const y        = canvas.height - sqSize - 60;
+
+  ctx.lineWidth  = 1;
+  for(let i=0; i<circleCount; i++){
+    let x = startX + i*(sqSize + spacing);
+    squares.push({x, y, w: sqSize, h: sqSize});
+    ctx.fillStyle   = 'white';
+    ctx.fillRect(x, y, sqSize, sqSize);
+    ctx.strokeStyle = 'black';
+    ctx.strokeRect(x, y, sqSize, sqSize);
+  }
+}
+initCanvas();
+
+// 2) Coordinates Adjusted for scaling
+function getMousePos(evt) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (evt.clientX - rect.left)*scaleX,
+    y: (evt.clientY - rect.top)*scaleY
+  };
+}
+function getTouchPos(touch) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (touch.clientX - rect.left)*scaleX,
+    y: (touch.clientY - rect.top)*scaleY
+  };
+}
+
+// 3) Check for square clicks
+function findSquareAt(mx, my) {
+  for(let i=0; i<squares.length; i++){
+    const s = squares[i];
+    if(mx>=s.x && mx<=s.x+s.w && my>=s.y && my<=s.y+s.h){
+      return i;
+    }
+  }
+  return -1;
+}
+function fillSquare(index) {
+  const s = squares[index];
+  ctx.fillStyle   = colorPicker.value;
+  ctx.globalAlpha = 1.0;
+  ctx.fillRect(s.x, s.y, s.w, s.h);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth   = 1;
+  ctx.strokeRect(s.x, s.y, s.w, s.h);
+}
+
+// 4) Paint or Spray
+function startDrawing(x, y) {
+  drawing = true;
+  lastX   = x;
+  lastY   = y;
+  if(toolSelect.value === 'spray'){
+    doSpray(x,y);
+  }
+}
+
+function doPaint(x, y) {
+  // 50% opacity lines
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = colorPicker.value;
+  ctx.lineWidth   = parseInt(brushSize.value, 10);
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+
+  ctx.globalAlpha = 1.0;
+  lastX = x;
+  lastY = y;
+}
+
+function doSpray(x, y) {
+  const count = 15;
+  const radius = parseInt(brushSize.value, 10);
+
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle   = colorPicker.value;
+  for(let i=0; i<count; i++){
+    const angle = Math.random()*2*Math.PI;
+    const dist  = Math.random()*radius;
+    const dx    = Math.cos(angle)*dist;
+    const dy    = Math.sin(angle)*dist;
+    const dotX  = x+dx;
+    const dotY  = y+dy;
+
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 1 + Math.random()*2, 0, 2*Math.PI);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1.0;
+}
+
+function stopDrawing() {
+  drawing = false;
+  ctx.beginPath(); 
+}
+
+// 5) MOUSE events
+canvas.addEventListener('mousedown', (e) => {
+  const {x, y} = getMousePos(e);
+  const sqIdx = findSquareAt(x,y);
+  if(sqIdx!==-1){
+    fillSquare(sqIdx);
+    return;
+  }
+  startDrawing(x,y);
+});
+canvas.addEventListener('mousemove', (e) => {
+  if(!drawing) return;
+  if(toolSelect.value==='paint'){
+    const {x,y} = getMousePos(e);
+    doPaint(x,y);
+  } else {
+    const {x,y} = getMousePos(e);
+    doSpray(x,y);
+  }
+});
+canvas.addEventListener('mouseup', stopDrawing);
+canvas.addEventListener('mouseleave', stopDrawing);
+
+// 6) TOUCH events
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const {x,y} = getTouchPos(touch);
+  const sqIdx = findSquareAt(x,y);
+  if(sqIdx!==-1){
+    fillSquare(sqIdx);
+    return;
+  }
+  startDrawing(x,y);
+}, {passive:false});
+
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if(!drawing) return;
+  const touch = e.touches[0];
+  const {x,y} = getTouchPos(touch);
+  if(toolSelect.value==='paint'){
+    doPaint(x,y);
+  } else {
+    doSpray(x,y);
+  }
+}, {passive:false});
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  stopDrawing();
+}, {passive:false});
+
+// 7) DOWNLOAD
+function downloadCanvas() {
+  const link = document.createElement('a');
+  link.download = 'color_orbit_study.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+window.downloadCanvas = downloadCanvas;
+</script>
+</body>
+</html>
