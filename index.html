@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>COLOR ORBIT STUDY</title>
+  <title>Color Orbit Study</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -74,6 +74,30 @@
       background: #f7fcfe;
       cursor: pointer;
     }
+    #brushPreviewContainer {
+      display: flex;
+      justify-content: center;
+      margin: 15px 0;
+    }
+    #brushPreview {
+      width: 80px;
+      height: 80px;
+      background-color: #eee;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .button-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .button-row button {
+      flex: 1;
+      margin-top: 0;
+    }
     #instructionSection {
       margin-top: auto;
       padding-top: 1rem;
@@ -92,7 +116,7 @@
 
     /* 
        The canvas has a fixed internal resolution of 900x800.
-       We scale it in CSS so it’s responsive.
+       We scale it in CSS so it's responsive.
        - width: 100% for small screens
        - max-width: 900px so it never exceeds 900
          or use max-width: 50% if you prefer a half-screen cap on big monitors
@@ -129,11 +153,26 @@
     <option value="spray">Spray Paint</option>
   </select>
 
+  <div id="brushPreviewContainer">
+    <div id="brushPreview"></div>
+  </div>
+
   <label for="colorPicker">Brush Color:</label>
   <input type="color" id="colorPicker" value="#cc6600" />
 
   <label for="brushSize">Brush Size:</label>
   <input type="range" id="brushSize" min="1" max="50" value="8" />
+
+  <label for="opacitySlider">Opacity:</label>
+  <input type="range" id="opacitySlider" min="0.1" max="1.0" step="0.1" value="0.5" />
+
+  <label for="jitterSlider">Jitter:</label>
+  <input type="range" id="jitterSlider" min="0" max="10" value="0" />
+
+  <div class="button-row">
+    <button id="undoButton" onclick="undoStroke()">UNDO</button>
+    <button id="redoButton" onclick="redoStroke()">REDO</button>
+  </div>
 
   <button class="download" onclick="downloadCanvas()">DOWNLOAD</button>
 
@@ -166,15 +205,136 @@ function toggleSettings() {
 const canvas = document.getElementById('orbitCanvas');
 const ctx    = canvas.getContext('2d');
 
+// UI elements
 const toolSelect   = document.getElementById('toolSelect');
 const colorPicker  = document.getElementById('colorPicker');
 const brushSize    = document.getElementById('brushSize');
+const opacitySlider = document.getElementById('opacitySlider');
+const jitterSlider = document.getElementById('jitterSlider');
 
 // track drawing
 let drawing = false;
 let lastX   = 0;
 let lastY   = 0;
 let squares = [];
+
+// Add these variables at the top with the other globals
+let pendingDrawPoint = null;
+let animationFrameId = null;
+
+// History for undo/redo
+let history = [];
+let historyIndex = -1;
+const MAX_HISTORY = 20;
+
+// Save current canvas state to history
+function saveToHistory() {
+  // Create a history entry
+  const imageData = canvas.toDataURL();
+  
+  // If we have undone actions and are now drawing something new,
+  // we need to discard the "future" history
+  if (historyIndex < history.length - 1) {
+    history = history.slice(0, historyIndex + 1);
+  }
+  
+  // Add new state to history
+  history.push(imageData);
+  
+  // Limit history size
+  if (history.length > MAX_HISTORY) {
+    history.shift();
+  }
+  
+  historyIndex = history.length - 1;
+  
+  // Enable/disable undo/redo buttons
+  document.getElementById('undoButton').disabled = historyIndex < 1;
+  document.getElementById('redoButton').disabled = historyIndex >= history.length - 1;
+}
+
+// Undo last action
+function undoStroke() {
+  if (historyIndex > 0) {
+    historyIndex--;
+    loadFromHistory();
+  }
+}
+
+// Redo previously undone action
+function redoStroke() {
+  if (historyIndex < history.length - 1) {
+    historyIndex++;
+    loadFromHistory();
+  }
+}
+
+// Load canvas state from history
+function loadFromHistory() {
+  if (historyIndex >= 0 && historyIndex < history.length) {
+    const img = new Image();
+    img.onload = function() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.src = history[historyIndex];
+    
+    // Update button states
+    document.getElementById('undoButton').disabled = historyIndex < 1;
+    document.getElementById('redoButton').disabled = historyIndex >= history.length - 1;
+  }
+}
+
+// Show brush preview
+function updateBrushPreview() {
+  const preview = document.getElementById('brushPreview');
+  preview.innerHTML = '';
+  
+  // Create a small canvas for the preview
+  const previewCanvas = document.createElement('canvas');
+  previewCanvas.width = 80;
+  previewCanvas.height = 80;
+  const previewCtx = previewCanvas.getContext('2d');
+  
+  // Draw the brush preview
+  previewCtx.fillStyle = '#ffffff';
+  previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+  
+  if (toolSelect.value === 'paint') {
+    // Simple circle preview for paint brush
+    const size = parseInt(brushSize.value) / 2;
+    previewCtx.fillStyle = colorPicker.value;
+    previewCtx.globalAlpha = parseFloat(opacitySlider.value);
+    previewCtx.beginPath();
+    previewCtx.arc(previewCanvas.width/2, previewCanvas.height/2, size, 0, Math.PI * 2);
+    previewCtx.fill();
+  } else if (toolSelect.value === 'spray') {
+    // Spray preview
+    previewCtx.fillStyle = colorPicker.value;
+    previewCtx.globalAlpha = parseFloat(opacitySlider.value);
+    const radius = parseInt(brushSize.value);
+    
+    for (let i = 0; i < 30; i++) {
+      const angle = Math.random() * 2 * Math.PI;
+      const dist = Math.random() * radius * 0.8;
+      const x = previewCanvas.width/2 + Math.cos(angle) * dist;
+      const y = previewCanvas.height/2 + Math.sin(angle) * dist;
+      
+      previewCtx.beginPath();
+      previewCtx.arc(x, y, 1 + Math.random() * 2, 0, Math.PI * 2);
+      previewCtx.fill();
+    }
+  }
+  
+  preview.appendChild(previewCanvas);
+}
+
+// Listen for changes to update the preview
+toolSelect.addEventListener('change', updateBrushPreview);
+brushSize.addEventListener('input', updateBrushPreview);
+colorPicker.addEventListener('input', updateBrushPreview);
+opacitySlider.addEventListener('input', updateBrushPreview);
+jitterSlider.addEventListener('input', updateBrushPreview);
 
 // 1) Initialize the Canvas content
 function initCanvas() {
@@ -225,8 +385,10 @@ function initCanvas() {
     ctx.strokeStyle = 'black';
     ctx.strokeRect(x, y, sqSize, sqSize);
   }
+  
+  // Save initial state to history
+  saveToHistory();
 }
-initCanvas();
 
 // 2) Coordinates Adjusted for scaling
 function getMousePos(evt) {
@@ -266,6 +428,9 @@ function fillSquare(index) {
   ctx.strokeStyle = 'black';
   ctx.lineWidth   = 1;
   ctx.strokeRect(s.x, s.y, s.w, s.h);
+  
+  // Save state after filling a square
+  saveToHistory();
 }
 
 // 4) Paint or Spray
@@ -273,24 +438,69 @@ function startDrawing(x, y) {
   drawing = true;
   lastX   = x;
   lastY   = y;
-  if(toolSelect.value === 'spray'){
+  
+  // Initialize points array for the paint tool
+  if(toolSelect.value === 'paint'){
+    window.points = [{ x, y }];
+  } else if(toolSelect.value === 'spray'){
     doSpray(x,y);
   }
 }
 
 function doPaint(x, y) {
-  // 50% opacity lines
-  ctx.globalAlpha = 0.5;
+  // Get opacity from slider
+  const opacity = parseFloat(opacitySlider.value);
+  const jitter = parseInt(jitterSlider.value);
+  
+  // Apply jitter if enabled
+  if (jitter > 0) {
+    x += (Math.random() * 2 - 1) * jitter;
+    y += (Math.random() * 2 - 1) * jitter;
+  }
+  
+  // Set opacity
+  ctx.globalAlpha = opacity;
   ctx.strokeStyle = colorPicker.value;
   ctx.lineWidth   = parseInt(brushSize.value, 10);
   ctx.lineCap     = 'round';
   ctx.lineJoin    = 'round';
 
+  // Store points for smoother curve
+  if (!window.points) window.points = [];
+  window.points.push({ x, y });
+  
+  // Keep only the last few points for efficient drawing
+  if (window.points.length > 5) {
+    window.points.shift();
+  }
+  
+  // Need at least 2 points to draw
+  if (window.points.length < 2) return;
+  
+  // Clear and begin a new path
   ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(x, y);
+  
+  // Start from the first point
+  ctx.moveTo(window.points[0].x, window.points[0].y);
+  
+  // For just 2 points, draw a straight line
+  if (window.points.length == 2) {
+    ctx.lineTo(window.points[1].x, window.points[1].y);
+  } else {
+    // For 3+ points, use quadratic curves between each pair of points
+    for (let i = 1; i < window.points.length - 1; i++) {
+      // Use the midpoint as control point for smoother curves
+      const xc = (window.points[i].x + window.points[i+1].x) / 2;
+      const yc = (window.points[i].y + window.points[i+1].y) / 2;
+      ctx.quadraticCurveTo(window.points[i].x, window.points[i].y, xc, yc);
+    }
+    
+    // Connect to the last point
+    const last = window.points.length - 1;
+    ctx.lineTo(window.points[last].x, window.points[last].y);
+  }
+  
   ctx.stroke();
-
   ctx.globalAlpha = 1.0;
   lastX = x;
   lastY = y;
@@ -299,8 +509,16 @@ function doPaint(x, y) {
 function doSpray(x, y) {
   const count = 15;
   const radius = parseInt(brushSize.value, 10);
+  const opacity = parseFloat(opacitySlider.value);
+  const jitter = parseInt(jitterSlider.value);
+  
+  // Apply jitter to main position if enabled
+  if (jitter > 0) {
+    x += (Math.random() * 2 - 1) * jitter;
+    y += (Math.random() * 2 - 1) * jitter;
+  }
 
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = opacity;
   ctx.fillStyle   = colorPicker.value;
   for(let i=0; i<count; i++){
     const angle = Math.random()*2*Math.PI;
@@ -318,8 +536,22 @@ function doSpray(x, y) {
 }
 
 function stopDrawing() {
+  if (drawing) {
+    // Save to history only if we were actually drawing
+    saveToHistory();
+  }
+  
   drawing = false;
   ctx.beginPath(); 
+  // Clear points array when stopping drawing
+  window.points = [];
+  pendingDrawPoint = null;
+  
+  // Cancel any pending animation frame
+  if(animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
 }
 
 // 5) MOUSE events
@@ -332,16 +564,20 @@ canvas.addEventListener('mousedown', (e) => {
   }
   startDrawing(x,y);
 });
+
 canvas.addEventListener('mousemove', (e) => {
   if(!drawing) return;
-  if(toolSelect.value==='paint'){
-    const {x,y} = getMousePos(e);
-    doPaint(x,y);
-  } else {
-    const {x,y} = getMousePos(e);
-    doSpray(x,y);
+  
+  // Store the latest point
+  const {x, y} = getMousePos(e);
+  pendingDrawPoint = {x, y};
+  
+  // If we don't have an animation frame request, make one
+  if(!animationFrameId) {
+    animationFrameId = requestAnimationFrame(drawPendingPoint);
   }
 });
+
 canvas.addEventListener('mouseup', stopDrawing);
 canvas.addEventListener('mouseleave', stopDrawing);
 
@@ -361,12 +597,15 @@ canvas.addEventListener('touchstart', (e) => {
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
   if(!drawing) return;
+  
+  // Store the latest point
   const touch = e.touches[0];
-  const {x,y} = getTouchPos(touch);
-  if(toolSelect.value==='paint'){
-    doPaint(x,y);
-  } else {
-    doSpray(x,y);
+  const {x, y} = getTouchPos(touch);
+  pendingDrawPoint = {x, y};
+  
+  // If we don't have an animation frame request, make one
+  if(!animationFrameId) {
+    animationFrameId = requestAnimationFrame(drawPendingPoint);
   }
 }, {passive:false});
 
@@ -375,6 +614,20 @@ canvas.addEventListener('touchend', (e) => {
   stopDrawing();
 }, {passive:false});
 
+// Draw function for animation frames
+function drawPendingPoint() {
+  animationFrameId = null;
+  
+  if(pendingDrawPoint && drawing) {
+    if(toolSelect.value === 'paint') {
+      doPaint(pendingDrawPoint.x, pendingDrawPoint.y);
+    } else if(toolSelect.value === 'spray') {
+      doSpray(pendingDrawPoint.x, pendingDrawPoint.y);
+    }
+    pendingDrawPoint = null;
+  }
+}
+
 // 7) DOWNLOAD
 function downloadCanvas() {
   const link = document.createElement('a');
@@ -382,7 +635,15 @@ function downloadCanvas() {
   link.href = canvas.toDataURL('image/png');
   link.click();
 }
+
+// Make functions available to window scope
 window.downloadCanvas = downloadCanvas;
+window.undoStroke = undoStroke;
+window.redoStroke = redoStroke;
+
+// Initialize
+initCanvas();
+updateBrushPreview();
 </script>
 </body>
 </html>
